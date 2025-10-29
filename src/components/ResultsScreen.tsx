@@ -2,8 +2,9 @@ import { AssessmentResults } from '@/types/assessment';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { getModalityIcon, getModalityColor, getModalityLevel } from '@/utils/scoring';
-import { AlertCircle, ArrowRight, BookOpen, Target, TrendingUp } from 'lucide-react';
+import { getModalityIcon, getModalityColor, getModalityLevel, generatePersonalizedRecommendations, getConfidenceMessage } from '@/utils/scoring';
+import { checkAchievements, getAchievementProgress } from '@/utils/achievements';
+import { AlertCircle, ArrowRight, BookOpen, Target, TrendingUp, CheckCircle, AlertTriangle, Trophy, Star } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 interface ResultsScreenProps {
@@ -12,7 +13,10 @@ interface ResultsScreenProps {
 }
 
 export default function ResultsScreen({ results, onReset }: ResultsScreenProps) {
-  const { scores, primaryModality, secondaryModality, profileType } = results;
+  const { scores, normalizedScores, primaryModality, secondaryModality, profileType, confidenceLevel, validationWarnings } = results;
+  const personalizedRecommendations = generatePersonalizedRecommendations(results);
+  const achievements = checkAchievements(results);
+  const achievementProgress = getAchievementProgress(results, 0);
 
   const profileTitles = {
     multimodal: '🌈 Balanced Multi-Modal Learner',
@@ -43,6 +47,28 @@ export default function ResultsScreen({ results, onReset }: ResultsScreenProps) 
           </p>
         </div>
 
+        {/* Validation Warnings */}
+        {validationWarnings.length > 0 && (
+          <Card className="p-6 border-2 border-yellow-200 bg-yellow-50">
+            <div className="flex gap-4">
+              <AlertTriangle className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-1" />
+              <div className="space-y-2">
+                <h3 className="font-semibold text-yellow-800">Response Quality Notice</h3>
+                <div className="space-y-1">
+                  {validationWarnings.map((warning, index) => (
+                    <p key={index} className="text-sm text-yellow-700 leading-relaxed">
+                      • {warning}
+                    </p>
+                  ))}
+                </div>
+                <p className="text-sm text-yellow-700 font-medium">
+                  Confidence Level: {getConfidenceMessage(confidenceLevel)}
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
+
         <Card className="p-6 border-2 border-accent/20 bg-accent/5">
           <div className="flex gap-4">
             <AlertCircle className="w-6 h-6 text-accent flex-shrink-0 mt-1" />
@@ -59,12 +85,13 @@ export default function ResultsScreen({ results, onReset }: ResultsScreenProps) 
         </Card>
 
         <div className="grid md:grid-cols-2 gap-6">
-          {(Object.entries(scores) as [keyof typeof scores, number][]).map(([modality, score]) => {
-            const level = getModalityLevel(score);
-            const percentage = (score / 50) * 100;
+          {(Object.entries(normalizedScores) as [keyof typeof normalizedScores, number][]).map(([modality, normalizedScore]) => {
+            const rawScore = scores[modality];
+            const level = getModalityLevel(normalizedScore);
             const icon = getModalityIcon(modality);
             const isPrimary = modality === primaryModality;
             const isSecondary = modality === secondaryModality;
+            const confidenceInterval = Math.round((1 - confidenceLevel) * 10);
 
             return (
               <Card key={modality} className={`p-6 shadow-elegant transition-smooth hover:shadow-lg ${isPrimary ? 'ring-2 ring-primary' : ''}`}>
@@ -80,12 +107,17 @@ export default function ResultsScreen({ results, onReset }: ResultsScreenProps) 
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-2xl font-bold">{score}</div>
-                      <div className="text-sm text-muted-foreground">/ 50</div>
+                      <div className="text-2xl font-bold">{normalizedScore}%</div>
+                      <div className="text-sm text-muted-foreground">
+                        ±{confidenceInterval}% confidence
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Raw: {rawScore}/50
+                      </div>
                     </div>
                   </div>
 
-                  <Progress value={percentage} className="h-2" />
+                  <Progress value={normalizedScore} className="h-2" />
 
                   {isPrimary && (
                     <Badge className="gradient-primary text-white">
@@ -107,10 +139,11 @@ export default function ResultsScreen({ results, onReset }: ResultsScreenProps) 
         <div className="space-y-6">
           <h2 className="text-3xl font-bold">Understanding Your Preferences</h2>
           
-          {(Object.entries(scores) as [keyof typeof scores, number][])
+          {(Object.entries(normalizedScores) as [keyof typeof normalizedScores, number][])
             .sort((a, b) => b[1] - a[1])
-            .map(([modality, score]) => {
-              const level = getModalityLevel(score);
+            .map(([modality, normalizedScore]) => {
+              const rawScore = scores[modality];
+              const level = getModalityLevel(normalizedScore);
               const icon = getModalityIcon(modality);
 
               return (
@@ -120,7 +153,8 @@ export default function ResultsScreen({ results, onReset }: ResultsScreenProps) 
                       <span className="text-4xl">{icon}</span>
                       <div>
                         <h3 className="text-2xl font-bold">{modality} Preference</h3>
-                        <p className="text-muted-foreground">Score: {score}/50 ({level})</p>
+                        <p className="text-muted-foreground">Score: {normalizedScore}% ({level})</p>
+                        <p className="text-sm text-muted-foreground">Raw: {rawScore}/50</p>
                       </div>
                     </div>
 
@@ -298,6 +332,75 @@ export default function ResultsScreen({ results, onReset }: ResultsScreenProps) 
                   doubling retrieval pathways.
                 </p>
               </div>
+            </div>
+          </div>
+        </Card>
+
+        {/* Achievements */}
+        <Card className="p-8 shadow-elegant bg-gradient-to-br from-yellow-50 to-orange-50 border-2 border-yellow-200">
+          <div className="space-y-6">
+            <div className="flex items-center gap-3">
+              <Trophy className="w-8 h-8 text-yellow-600" />
+              <h2 className="text-2xl font-bold">Your Achievements</h2>
+              <Badge variant="secondary" className="ml-auto">
+                {achievementProgress.unlocked}/{achievementProgress.total} Unlocked
+              </Badge>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {achievements.map((achievement) => (
+                <div
+                  key={achievement.id}
+                  className={`p-4 rounded-lg border-2 transition-all ${
+                    achievement.unlocked
+                      ? 'bg-yellow-100 border-yellow-300 shadow-md'
+                      : 'bg-gray-100 border-gray-200 opacity-50'
+                  }`}
+                >
+                  <div className="text-center space-y-2">
+                    <div className="text-3xl">{achievement.icon}</div>
+                    <h3 className="font-semibold text-sm">{achievement.name}</h3>
+                    <p className="text-xs text-muted-foreground">
+                      {achievement.description}
+                    </p>
+                    {achievement.unlocked && (
+                      <div className="flex items-center justify-center gap-1">
+                        <Star className="w-3 h-3 text-yellow-500 fill-current" />
+                        <span className="text-xs text-yellow-700 font-medium">Unlocked!</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground">
+                Complete the assessment multiple times to unlock more achievements!
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        {/* Personalized Recommendations */}
+        <Card className="p-8 shadow-elegant bg-gradient-to-br from-primary/5 to-accent/5 border-2">
+          <div className="space-y-6">
+            <div className="flex items-center gap-3">
+              <CheckCircle className="w-8 h-8 text-primary" />
+              <h2 className="text-2xl font-bold">Your Personalized Recommendations</h2>
+            </div>
+
+            <div className="space-y-4">
+              {personalizedRecommendations.map((recommendation, index) => (
+                <div key={index} className="flex gap-4">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold text-sm">
+                    {index + 1}
+                  </div>
+                  <p className="text-muted-foreground leading-relaxed">
+                    {recommendation}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
         </Card>

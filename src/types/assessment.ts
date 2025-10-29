@@ -23,9 +23,20 @@ export interface Scores {
 
 export interface AssessmentResults {
   scores: Scores;
+  normalizedScores: Scores;
   primaryModality: Modality;
   secondaryModality: Modality | null;
   profileType: 'multimodal' | 'dual_preference' | 'single_dominant' | 'specialized';
   scoreRange: number;
   meanScore: number;
+  confidenceLevel: number;
+  responseConsistency: number;
+  validationWarnings: string[];
+}
+
+export interface ValidationResult {
+  isValid: boolean;
+  issues: string[];
+  consistencyScore: number;
+  confidenceLevel: number;
 }
